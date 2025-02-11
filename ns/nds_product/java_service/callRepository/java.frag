@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<Values version="2.0">
+  <value name="name">callRepository</value>
+  <value name="encodeutf8">true</value>
+  <value name="body">SURhdGFDdXJzb3IgY3Vyc29yID0gcGlwZWxpbmUuZ2V0Q3Vyc29yKCk7DQoNClN0cmluZyBzZXJ2
+aWNlTmFtZSA9IElEYXRhVXRpbC5nZXRTdHJpbmcoY3Vyc29yLCAic2VydmljZU5hbWUiKTsNClN0
+cmluZyBzZXJ2aWNlRm9sZGVyID0gSURhdGFVdGlsLmdldFN0cmluZyhjdXJzb3IsICJzZXJ2aWNl
+Rm9sZGVyIik7DQoNCnRyeSB7DQoJSURhdGEgaW5wdXQgPSBJRGF0YVV0aWwuZ2V0SURhdGEoY3Vy
+c29yLCAiZGF0YSIpOw0KCQ0KCUlEYXRhIG91dHB1dCA9IFNlcnZpY2UuZG9JbnZva2Uoc2Vydmlj
+ZUZvbGRlciwgc2VydmljZU5hbWUsIGlucHV0KTsNCgkNCglJRGF0YVV0aWwucHV0KGN1cnNvciwg
+InJlc3VsdCIsIG91dHB1dCk7DQoJY3Vyc29yLmRlc3Ryb3koKTsNCn0gY2F0Y2ggKEV4Y2VwdGlv
+biBlKSB7DQoJLy8gVE9ETyBBdXRvLWdlbmVyYXRlZCBjYXRjaCBibG9jaw0KCWUucHJpbnRTdGFj
+a1RyYWNlKCk7DQp9</value>
+</Values>
