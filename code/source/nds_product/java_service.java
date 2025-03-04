@@ -7,8 +7,11 @@ import com.wm.util.Values;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 // --- <<IS-START-IMPORTS>> ---
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.Random;
 import java.math.BigDecimal;
 import com.google.gson.Gson;
@@ -17,6 +20,23 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import id.co.nds.race.formatter.xslt.profile.ProfileField;
+import id.co.nds.race.formatter.xslt.profile.ProfileSection;
+import id.co.nds.race.formatter.html.ProfileHTML;
+import id.co.nds.race.formatter.xslt.profile.ProfileException;
+import id.co.nds.race.formatter.models.ExportImportSettings;
+import id.co.nds.race.formatter.JDBCExportToCSV;
+import id.co.nds.race.formatter.JDBCExportToFLV;
+import id.co.nds.race.formatter.JDBCExportToJson;
+import id.co.nds.race.formatter.JDBCImportFromCSV;
+import id.co.nds.race.formatter.JDBCImportFromFLV;
+import id.co.nds.race.formatter.constants.ConfigurationChecker;
+import id.co.nds.race.formatter.text_formatter.formatter.html.csv.xport.CSVExportHTML;
+import id.co.nds.race.formatter.xslt.metadata.MetadataField;
+import id.co.nds.race.formatter.text_formatter.formatter.html.IFormatterHTML;
+import id.co.nds.race.formatter.xslt.metadata.csv.CSVMetadataException;
+import id.co.nds.race.formatter.xslt.metadata.flv.FLVMetadataException;
+import id.co.nds.race.formatter.text_formatter.formatter.html.flv.xport.FLVExportHTML;
 // --- <<IS-END-IMPORTS>> ---
 
 public final class java_service
@@ -35,31 +55,179 @@ public final class java_service
 
 
 
-	public static final void callRepository (IData pipeline)
+	public static final void JDBCExport (IData pipeline)
         throws ServiceException
 	{
-		// --- <<IS-START(callRepository)>> ---
+		// --- <<IS-START(JDBCExport)>> ---
 		// @sigtype java 3.5
-		// [i] field:0:required serviceName
-		// [i] field:0:required serviceFolder
-		// [i] record:0:required data
-		// [o] record:0:required result
+		// [i] recref:0:required MsProduct nds_product.rest_service.entities:MsProduct
+		// [i] recref:1:required MsParamProducts nds_product.rest_service.entities:MsParamProduct
+		// [i] recref:0:required MsBill nds_product.rest_service.entities:MsBill
+		// [i] recref:0:required MsProductFile nds_product.rest_service.entities:MsProductFile
+		// [o] field:0:required data
+		// [o] object:0:required success
+		// [o] field:0:required error
 		IDataCursor cursor = pipeline.getCursor();
 		
-		String serviceName = IDataUtil.getString(cursor, "serviceName");
-		String serviceFolder = IDataUtil.getString(cursor, "serviceFolder");
+		IData MsProduct = IDataUtil.getIData(cursor, "MsProduct");
+		IDataCursor MsProductCursor = MsProduct.getCursor();
+		
+		String productId = IDataUtil.getString(MsProductCursor, "product_id");
+		String productType = IDataUtil.getString(MsProductCursor, "product_type");
+		String productProfile = IDataUtil.getString(MsProductCursor, "product_profile");
+		String productDirection = IDataUtil.getString(MsProductCursor, "product_profile");
+		
+		IData[] MsParamProducts = IDataUtil.getIDataArray(cursor, "MsParamProducts");
+		IData MsBill = IDataUtil.getIData(cursor, "MsBill");
+		IDataCursor MsBillCursor = MsBill.getCursor();
+		
+		
+		String fileType = "";
+		if (productType.equals("file")) {
+			IData MsProductFile = IDataUtil.getIData(cursor, "MsProductFile");
+			IDataCursor MsProductFileCursor = MsProductFile.getCursor();
+			fileType = IDataUtil.getString(MsProductFileCursor, "file_type");
+		}
+		
+		String profileFileName = null;
+		String metadataFileName = IDataUtil.getString(MsProductCursor, "product_metadata");
+		String xmlLibFileName = null;
+		String xslLibFileName = null;
+		String xslFileName = IDataUtil.getString(MsProductCursor, "product_xsl");
+		
+		for (IData MsParamProduct : MsParamProducts) {
+			IDataCursor MsParamProductCursor = MsParamProduct.getCursor();
+				
+			String keyParam = IDataUtil.getString(MsParamProductCursor, "key_param");
+			String valueParam = IDataUtil.getString(MsParamProductCursor, "value_param");
+		
+			switch (keyParam) {
+				case "xml-lib":
+					xmlLibFileName = valueParam;
+					break;
+				case "xsl-lib":
+					xslLibFileName = valueParam;
+					break;
+				default:
+					profileFileName = valueParam;
+					break;
+			}
+			
+			MsParamProductCursor.destroy();
+		}
+		
+		ExportImportSettings settings = new ExportImportSettings();
+		settings.setProfileFileName(profileFileName);
+		settings.setMetadataFileName(metadataFileName);
+		settings.setXmlLibFileName(xmlLibFileName);
+		settings.setXslLibFileName(xslLibFileName);
+		settings.setXslFileName(xslFileName);
+		
+		ArrayList<ProfileField> profileHeaderFields = null;
+		ArrayList<ProfileField> profileBodyFields = null;
+		
+		ArrayList<MetadataField> metadataHeaderFields = null;
+		ArrayList<MetadataField> metadataBodyFields = null;
+		ArrayList<MetadataField> metadataFooterFields = null;
+		
+		String error = "";
 		
 		try {
-			IData input = IDataUtil.getIData(cursor, "data");
+			ProfileHTML profile = new ProfileHTML(productProfile, productDirection, profileFileName, xmlLibFileName, "header");
+			profileHeaderFields = profile.getHeader().getFields();
+			profileBodyFields = profile.getBody().getFields();
 			
-			IData output = Service.doInvoke(serviceFolder, serviceName, input);
+			IFormatterHTML html = getExportHtml(productType, productProfile, fileType, productId, "header", settings);		
+			metadataHeaderFields = html.getMetadataSection().getRow().getFields();
 			
-			IDataUtil.put(cursor, "result", output);
-			cursor.destroy();
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			html = getExportHtml(productType, productProfile, fileType, productId, "body", settings);		
+			metadataBodyFields = html.getMetadataSection().getRow().getFields();
+			
+			html = getExportHtml(productType, productProfile, fileType, productId, "footer", settings);		
+			metadataFooterFields = html.getMetadataSection().getRow().getFields();
+		} catch (Exception ex) {
+			error = ex.toString();
 		}
+		
+		Map<String, Object> datas = new HashMap<String, Object>();
+		
+		for (MetadataField header : metadataHeaderFields) {
+			if (!header.getTagName().isEmpty() && !header.getSource().equals("var") && !datas.containsKey(header.getTagName())) {
+				ProfileField profileField = profileHeaderFields.stream().filter(f -> f.getName().equals(header.getTagName())).findFirst().orElse(null);
+				Object value = IDataUtil.get(MsBillCursor, profileField.getFieldName());
+				datas.put(header.getTagName(), value);
+			}
+		}
+		
+		for (MetadataField body : metadataBodyFields) {
+			if (!body.getTagName().isEmpty() && !body.getSource().equals("var") && !datas.containsKey(body.getTagName())) {
+				ProfileField profileField = profileBodyFields.stream().filter(f -> f.getName().equals(body.getTagName())).findFirst().orElse(null);
+				Object value = IDataUtil.get(MsBillCursor, profileField.getFieldName());
+				datas.put(body.getTagName(), value);
+			}
+		}
+		
+		for (MetadataField footer : metadataFooterFields) {
+			if (!footer.getTagName().isEmpty() && !footer.getSource().equals("var") && !datas.containsKey(footer.getTagName())) {
+				ProfileField profileField = profileBodyFields.stream().filter(f -> f.getName().equals(footer.getTagName())).findFirst().orElse(null);
+				Object value = IDataUtil.get(MsBillCursor, profileField.getFieldName());
+				datas.put(footer.getTagName(), value);
+			}
+		}
+		
+		List<Map<String, Object>> data = new ArrayList<Map<String, Object>>();
+		data.add(datas);
+		
+		List<Map<String, Object>> headerData = new ArrayList<Map<String, Object>>();
+		for (Map.Entry<String, Object> d : datas.entrySet()) {
+			Map<String, Object> headerD = new HashMap<String, Object>();
+			headerD.put("keyId", d.getKey());
+			headerD.put("value", d.getValue());
+			headerData.add(headerD);
+		}
+				
+		
+			
+		String text = "";
+		
+		try {
+		//			if (productType.equals("file")) {
+		//				if (fileType.equals("csv")) {
+		//					JDBCExportToCSV exportData = new JDBCExportToCSV(productProfile, productId, settings);
+		//					exportData.setHeader(headerData);
+		//					exportData.setBody(data);
+		//					exportData.setFooter(headerData);
+		//					text = exportData.export();
+		//				} else {
+		//					JDBCExportToFLV exportData = new JDBCExportToFLV(productProfile, productId, settings);
+		//					exportData.setHeader(headerData);
+		//					exportData.setBody(data);
+		//					exportData.setFooter(headerData);
+		//					text = exportData.export();
+		//				}
+		//			} else {
+		//				JDBCExportToJson exportData = new JDBCExportToJson(productProfile, productId, settings);
+		//				exportData.setHeader(headerData);
+		//				exportData.setBody(data);
+		//				exportData.setFooter(headerData);
+		//				text = exportData.export();
+		//			}
+			JDBCExportToJson exportData = new JDBCExportToJson(productProfile, productId, settings);
+			exportData.setHeader(headerData);
+			exportData.setBody(data);
+			exportData.setFooter(headerData);
+			text = exportData.export();
+		} catch (Exception ex) {
+			error = ex.toString();
+		}
+		
+		Boolean success = error.equals("") ? true : false;
+		IDataUtil.put(cursor, "success", success);
+		IDataUtil.put(cursor, "error", error);
+		IDataUtil.put(cursor, "data", text);
+		
+		MsProductCursor.destroy();
+		MsBillCursor.destroy();
 		// --- <<IS-END>> ---
 
                 
@@ -67,41 +235,35 @@ public final class java_service
 
 
 
-	public static final void callService (IData pipeline)
+	public static final void prepareConsumerApi (IData pipeline)
         throws ServiceException
 	{
-		// --- <<IS-START(callService)>> ---
+		// --- <<IS-START(prepareConsumerApi)>> ---
 		// @sigtype java 3.5
-		// [i] field:0:required requestBody
-		// [i] field:0:required requestHeader
-		// [i] record:0:required data
-		// [i] field:0:required profile
-		// [o] field:0:required requestBody
+		// [i] field:0:required data
 		// [o] record:0:required requestHeader
+		// [o] field:0:required requestBody
+		// [o] field:0:required queryParam
 		IDataCursor cursor = pipeline.getCursor();
 		
-		String requestBody = IDataUtil.getString(cursor, "requestBody");
-		String requestHeader = IDataUtil.getString(cursor, "requestHeader");
-		String profile = IDataUtil.getString(cursor, "profile");
-		IData iData = IDataUtil.getIData(cursor, "data");
+		String data = IDataUtil.getString(cursor, "data");
 		
-		profileObj = JsonParser.parseString(profile).getAsJsonObject();
-		data = readData(iData);
+		JsonObject obj = JsonParser.parseString(data).getAsJsonObject();
 		
-		JsonElement requestHeaderElement = JsonParser.parseString(requestHeader);
-		JsonObject requestHeaderObj = requestHeaderElement.getAsJsonObject();
-		
-		JsonElement requestBodyElement = JsonParser.parseString(requestBody);
-		JsonObject requestBodyObj = requestBodyElement.getAsJsonObject();
-		JsonObject newRequestBodyObj = printObject(requestBodyObj);
+		JsonObject header = obj.get("header").getAsJsonObject();
+		JsonElement body = obj.get("body");
+		JsonObject footer = obj.get("footer").getAsJsonObject();
 		
 		Gson gson = new GsonBuilder().setPrettyPrinting().create();
 		
-		IData requestHeaderIData = buildHeader(requestHeaderObj);
-		requestBody = gson.toJson(newRequestBodyObj);
+		IData requestHeaders = jsonObjectToIData(header);
+		String requestBody = gson.toJson(body);
+		String queryParam = jsonObjectToQueryParam(footer);
 		
+		
+		IDataUtil.put(cursor, "requestHeaders", requestHeaders);
 		IDataUtil.put(cursor, "requestBody", requestBody);
-		IDataUtil.put(cursor, "requestHeader", requestHeaderIData);
+		IDataUtil.put(cursor, "queryParam", queryParam);
 		// --- <<IS-END>> ---
 
                 
@@ -109,266 +271,136 @@ public final class java_service
 
 
 
-	public static final void readParameters (IData pipeline)
+	public static final void validateConsumerResponse (IData pipeline)
         throws ServiceException
 	{
-		// --- <<IS-START(readParameters)>> ---
+		// --- <<IS-START(validateConsumerResponse)>> ---
 		// @sigtype java 3.5
-		// [i] record:1:required parameters
-		// [i] record:0:required data
-		// [o] record:0:required input
+		// [i] field:0:required param_name_success
+		// [i] field:0:required param_value_success
+		// [i] field:0:required http_status_success
+		// [i] field:0:required status_code
+		// [i] record:0:required responseBody
 		// [o] object:0:required success
-		// [o] record:0:required error
+		// [o] field:0:required error
 		IDataCursor cursor = pipeline.getCursor();
 		
-		IData[] parameters = IDataUtil.getIDataArray(cursor, "parameters");
-		IData values = IDataUtil.getIData(cursor, "values");
-		IDataCursor valuesCursor = values.getCursor();
+		String paramNameSuccess = IDataUtil.getString(cursor, "param_name_success");
+		List<String> paramValueSuccess = Arrays.asList(
+				IDataUtil.getString(cursor, "param_value_success")
+				.split("\\|"));
+		List<String> httpStatusSuccess = Arrays.asList(
+				IDataUtil.getString(cursor, "http_status_success")
+				.split("\\|"));
+		IData responseBody = IDataUtil.getIData(cursor, "responseBody");
+		IDataCursor responseBodyCursor = responseBody.getCursor();
 		
-		IData input = IDataFactory.create();
-		IDataCursor inputCursor = input.getCursor();
-		
-		IData error = IDataFactory.create();
-		IDataCursor errorCursor = error.getCursor();
 		
 		Boolean success = true;
+		String error = "";
 		
-		for (IData parameter :  parameters) {
-			IDataCursor parameterCursor = parameter.getCursor();
-			String key = IDataUtil.getString(parameterCursor, "SERVICE_PARAMETER_NAME");
-			String type = IDataUtil.getString(parameterCursor, "SERVICE_PARAMETER_TYPE");
-			Boolean required = IDataUtil.getBoolean(parameterCursor, "REQUIRED");
-			
-			Object  value = IDataUtil.getString(valuesCursor, key);
-			
-			if (required && value == null) {
-				success = false;
-				IDataUtil.put(errorCursor, key, "Parameter " + key + " is required");
-				continue;
-			}
-			
-			switch (type) {
-			case "string":
-				value = IDataUtil.getString(valuesCursor, key);
-				value = value == null;
-				break;
-			case "stringArray":
-				value = IDataUtil.getStringArray(valuesCursor, key);
-				break;
-			case "number":
-				value = IDataUtil.get(valuesCursor, key);
-				break;
-			case "numberArray":
-				value = IDataUtil.getObjectArray(valuesCursor, key);
-				break;
-			case "object":
-				value = IDataUtil.getIData(valuesCursor, key);
-				break;
-			case "objectArray":
-				value = IDataUtil.getIDataArray(valuesCursor, key);
-				break;
-			}
-			
-			IDataUtil.put(inputCursor, key, value);
-			parameterCursor.destroy();
+		String name = IDataUtil.getString(responseBodyCursor, paramNameSuccess);
+		String statusCode = IDataUtil.getString(cursor, "status_code");
+		
+		if (!httpStatusSuccess.contains(statusCode)) {
+			success = false;
+			error = "Http Status Code response doesn't match success criteria";
 		}
 		
-		inputCursor.destroy();
-		errorCursor.destroy();
-		valuesCursor.destroy();
+		if (name == null) {
+			success = false;
+			error = "Field " + name + " doesn't exist in response";
+		} else {
+			if (!paramValueSuccess.contains(name)) {
+				success = false;
+				error = "Value of field " + name + " doesn't match success criteria";
+			}
+		}
 		
-		if (!success) input = null;
 		IDataUtil.put(cursor, "success", success);
-		IDataUtil.put(cursor, "input", input);
 		IDataUtil.put(cursor, "error", error);
+		
+		responseBodyCursor.destroy();
 		cursor.destroy();
-			
-		// --- <<IS-END>> ---
-
-                
-	}
-
-
-
-	public static final void wkwkland (IData pipeline)
-        throws ServiceException
-	{
-		// --- <<IS-START(wkwkland)>> ---
-		// @sigtype java 3.5
-		// [i] field:0:required json
-		// [i] record:0:required data
-		// [o] field:0:required requestBody
-		// [o] record:0:required header
-		IDataCursor cursor = pipeline.getCursor();
-		
-		//		IData data = IDataUtil.getIData(cursor, "data");
-		//		IDataCursor dataCursor = data.getCursor();
-		//		
-		String json = IDataUtil.getString(cursor, "json");
-		
-		Gson gson = new Gson();
-		JsonObject jsonObj = JsonParser.parseString(json).getAsJsonObject();
-		JsonObject body = jsonObj.get("body").getAsJsonObject();
-		
-		HashMap<String, Object> request = new HashMap<String, Object>();
-		readJsonObject(body, request);
-		
-		String requestBody = gson.toJson(request);
-		IDataUtil.put(cursor, "requestBody", requestBody);
 		// --- <<IS-END>> ---
 
                 
 	}
 
 	// --- <<IS-START-SHARED>> ---
+	private static IFormatterHTML getExportHtml(String productType, String productProfile, 
+		String fileType, String productId, String sectionName, ExportImportSettings settings) throws ProfileException, CSVMetadataException, FLVMetadataException {
 	
-	private static HashMap<String, Object> data;
-	private static JsonObject profileObj;
+		IFormatterHTML html = null;
+		if (productType.equals("api")) {
+			html = new CSVExportHTML(productProfile, productId, settings.getProfileFileName(), settings.getMetadataFileName(), settings.getXslLibFileName(), sectionName);
+		} else {
+			if (fileType.equals("csv")) {
+				html = new CSVExportHTML(productProfile, productId, settings.getProfileFileName(), settings.getMetadataFileName(), settings.getXslLibFileName(), sectionName);
+			} else {
+				html = new FLVExportHTML(productProfile, productId, settings.getProfileFileName(), settings.getMetadataFileName(), settings.getXslLibFileName(), sectionName);
+			}
+		}
 	
-	private static IData buildHeader(JsonObject data) {
+		return html;
+	}
+	
+	private static String jsonObjectToQueryParam(JsonObject obj) {
+		String queryParam = "?";
+	
+		Integer count = 0;
+		for (Map.Entry<String, JsonElement> o : obj.entrySet()) {
+			if (count != 0) {
+				queryParam += "&";
+			}
+			String key = o.getKey() + "=";
+			if (o.getValue().isJsonArray()) {
+				JsonArray arr = o.getValue().getAsJsonArray();
+				
+				for (Integer i = 0; i < arr.size(); i++) {
+					if (i != 0) {
+						queryParam += "&";
+					}
+					queryParam += key + arr.get(i).getAsString();
+				}
+			} else {
+				queryParam += key + o.getValue().getAsString();
+			}
+			count++;
+		}
+		return queryParam;
+	}
+	
+	private static IData jsonObjectToIData(JsonObject data) {
 		IData iData = IDataFactory.create();
 		IDataCursor cursor = iData.getCursor();
-		
+	
 		for (Map.Entry<String, JsonElement> d : data.entrySet()) {
 			IDataUtil.put(cursor, d.getKey(), d.getValue().getAsString());
 		}
-		
+	
 		cursor.destroy();
 		return iData;
 	}
+	private static List<Map<String, Object>> IDataArrayToMap(IData[] dataArray) {
+		List<Map<String, Object>> results = new ArrayList<Map<String, Object>>();
+		for (IData data : dataArray) {
+			
+			IDataCursor dataCursor = data.getCursor();
+			
+			Map<String, Object> result = new HashMap<String, Object>();
+			while (dataCursor.next()) {
+				String key = dataCursor.getKey();
+				Object value = dataCursor.getValue();
+				
+				result.put(key, value);
+			}
+			results.add(result);
+		}
+		return results;
+	}
 	
-	private static HashMap<String, Object> readData(IData data) {
-		HashMap<String, Object> result = new HashMap<String, Object>();
-		IDataCursor cursor = data.getCursor();
 		
-		while (cursor.next()) {
-			String key = cursor.getKey();
-			Object value = cursor.getValue();
-			result.put(key, value);
-		}
-		return result;
-	}
-	
-	private static JsonObject printObject(JsonObject obj) {
-		JsonObject newObj = new JsonObject();
-		for (Map.Entry<String, JsonElement> objElement: obj.entrySet()) {
-			//System.out.println("\nkey>"+objElement.getKey());
-			if (objElement.getValue().isJsonObject()) {
-				JsonObject newChildObj = new JsonObject();
-				newChildObj = printObject(objElement.getValue().getAsJsonObject());
-				newObj.add(objElement.getKey(), newChildObj);
-			} else if (objElement.getValue().isJsonArray()) {
-				JsonArray newChildArr = new JsonArray();
-				newChildArr = printArray(objElement.getValue().getAsJsonArray());
-				newObj.add(objElement.getKey(), newChildArr);
-			} else {
-				//System.out.println("value>"+objElement.getValue().getAsString());
-				newObj = addParameter(newObj, objElement.getKey(), objElement.getValue().getAsString());
-			}
-		}
-		return newObj;
-	}
-	
-	private static JsonArray printArray(JsonArray array) {
-		JsonArray newArr = new JsonArray();
-		JsonObject newObj = new JsonObject();
-		JsonObject obj = array.get(0).getAsJsonObject();
-		for (Map.Entry<String, JsonElement> objElement: obj.entrySet()) {
-			//System.out.println("\nkey>"+objElement.getKey());
-			if (objElement.getValue().isJsonObject()) {
-				JsonObject newChildObj = new JsonObject();
-				newChildObj = printObject(objElement.getValue().getAsJsonObject());
-				newObj.add(objElement.getKey(), newChildObj);
-			} else if (objElement.getValue().isJsonArray()) {
-				JsonArray newChildArr = new JsonArray();
-				newChildArr = printArray(objElement.getValue().getAsJsonArray());
-				newObj.add(objElement.getKey(), newChildArr);
-			} else {
-				//System.out.println("value>"+objElement.getValue().getAsString());
-				newObj = addParameter(newObj, objElement.getKey(), objElement.getValue().getAsString());
-			}
-		}
-		newArr.add(newObj);
-		return newArr;
-	}
-	
-	private static JsonObject addParameter(JsonObject object, String key, String tag) {
-		String format = tag.split("\\|")[0];
-		String value = getValue(tag.split("\\|")[1]).toString();
-		//System.out.println("test>"+format+">"+value);
-		switch (format) {
-			case "string":
-				object.addProperty(key, value);
-	    	    break;
-			case "number":
-				object.addProperty(key, Long.valueOf(value));
-	    	    break;
-			case "decimal":
-				object.addProperty(key, BigDecimal.valueOf(Long.valueOf(value)));
-	    	    break;
-			case "boolean":
-				object.addProperty(key, Boolean.valueOf(value));
-	    	    break;
-		}
-		return object;
-	}
-	
-	private static Object getValue(String id) {
-		Object result = new Object();
-		JsonElement profile = profileObj.get(id);
-		if (profile != null) {
-			String[] splitted = profile.getAsString().split("\\|");
-			String key = splitted[1];
-			result = data.getOrDefault(key, "0");
-		} else {
-			result = "0";
-		}
-		//String[] splitted = profile.split("\\|");
-	//	
-		//String key = splitted[1];
-		//result = data.getOrDefault(key, "0");
-		//result = data.getOrDefault(id, "0");
-		//result = id;
-		//get value from db, sementara hardcode dulu
-	//		Random rand = new Random();
-	//		
-	//		switch (id) {
-	//			case "id":
-	//				result = "nilai id";
-	//	    	    break;
-	//			case "name":
-	//				result = "nilai name";
-	//	    	    break;
-	//			case "total":
-	//				result = rand.nextInt();
-	//	    	    break;
-	//			case "true-false":
-	//				result = true;
-	//	    	    break;
-	//		}
-		return result;
-	}
-	
-	public static HashMap<String, Object> readJsonObject(JsonObject jsonObject, HashMap<String, Object> request) {
-		
-		for (Map.Entry<String, JsonElement> j : jsonObject.entrySet()) {
-			Object value = null;
-			if (j.getValue().isJsonObject()) {
-				HashMap<String, Object> newRequest = new HashMap<String, Object>();
-				readJsonObject(j.getValue().getAsJsonObject(), newRequest);
-				value = newRequest;
-			} else {
-				String[] splitted = j.getValue().getAsString().split("\\|");
-				if (splitted[0].equals("string")) {
-					value = splitted[1];
-				} else if (splitted[0].equals("number")) {
-					value = Integer.parseInt(splitted[1]);
-				}
-			}
-			request.put(j.getKey(), value);
-		}
-		return request;
-	}
 	// --- <<IS-END-SHARED>> ---
 }
 
